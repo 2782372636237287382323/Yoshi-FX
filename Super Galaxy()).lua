@@ -531,7 +531,8 @@ RankData = {
 	["MOD"] = { Color = "#bc3fff", Icon = "rbxassetid://105155010224102" },
 	["CON"] = { Color = "#1ABC9C", Icon = "rbxassetid://18940005647" },
 	["Cruzy"] = { Color = "#FF9900", Icon = "rbxassetid://136173586615424" },
-	["Kiyam"] = { Color = "#00D5FF", Icon = "rbxassetid://131871123424874" },
+	["Kiyam"] = { Color = "#00D5FF", Icon = "rbxassetid://135601954048658" },
+	["Relative"] = { Color = "#FF5E00", Icon = "rbxassetid://72807915177915" },
 	["Brent"] = { Color = "#FFD700", Icon = "rbxassetid://93649728520449" },
 	["Danger"] = { Color = "#FF2D2D", Icon = "rbxassetid://132454521998375" },
 	["Brokensfr"] = { Color = "#B84DFF", Icon = "rbxassetid://70443396654057" },
@@ -541,7 +542,7 @@ RankData = {
 
 RankList = { "None", "VIP", "LEAD DEV", "MAN", "DEV", "QA", "MOD", "CON" }
 -- Solo para "Your Rank Tag": los 3 nuevos aparecen justo debajo de None
-MyRankList = { "None", "Cruzy", "Kiyam", "Brent", "Danger", "Brokensfr", "Noschillies", "Rashad", "VIP", "LEAD DEV", "MAN", "DEV", "QA", "MOD", "CON" }
+MyRankList = { "None", "Cruzy", "Kiyam", "Relative", "Brent", "Danger", "Brokensfr", "Noschillies", "Rashad", "VIP", "LEAD DEV", "MAN", "DEV", "QA", "MOD", "CON" }
 
 ThreeDESPObjects = {}
 
@@ -6556,67 +6557,6 @@ local DoorEspToggle = Groupboxes.Visual.LeftGroupBox:AddToggle("DoorEsp", {
 	end,
 })
 
-SpectateTab = Tabs.Crosshair:AddRightGroupbox("Spectate")
-
-SpectateTab:AddToggle("EnableSpectate", {
-	Text = "Enable Spectate",
-	Default = false,
-	Callback = function(Value)
-		SpectateSettings.Enabled = Value
-		if Value and SpectateSettings.TargetPlayer then
-			StartSpectating(SpectateSettings.TargetPlayer)
-		else
-			StopSpectating()
-		end
-	end,
-}):AddKeyPicker(
-	"SpectateKey",
-	{ Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Spectate Player", NoUI = false }
-)
-
-spectatePlayerNames = {}
-for _, plr in pairs(Players:GetPlayers()) do
-	table.insert(spectatePlayerNames, plr.Name)
-end
-
-SpectateTab:AddDropdown("SpectateTarget", {
-	Values = spectatePlayerNames,
-	Default = "",
-	Text = "Select Player",
-	Callback = function(Value)
-		if Value ~= "" then
-			local targetPlayer = Players:FindFirstChild(Value)
-			SpectateSettings.TargetPlayer = targetPlayer
-			if SpectateSettings.Enabled and targetPlayer then
-				StartSpectating(targetPlayer)
-			end
-		end
-	end,
-})
-
-conn3 = Players.PlayerAdded:Connect(function(newPlayer)
-	if newPlayer ~= player and Options.SpectateTarget then
-		local values = Options.SpectateTarget.Values
-		table.insert(values, newPlayer.Name)
-		Options.SpectateTarget:SetValues(values)
-	end
-end)
-
-conn4 = Players.PlayerRemoving:Connect(function(removingPlayer)
-	if removingPlayer ~= player and Options.SpectateTarget then
-		local values = Options.SpectateTarget.Values
-		local index = table.find(values, removingPlayer.Name)
-		if index then
-			table.remove(values, index)
-			Options.SpectateTarget:SetValues(values)
-		end
-
-		if SpectateSettings.TargetPlayer == removingPlayer then
-			StopSpectating()
-		end
-	end
-end)
-
 NameHiderTab = Tabs["Crosshair"]:AddRightTabbox("Name Hider")
 MyNameTab = NameHiderTab:AddTab("My Settings")
 MyNameTab:AddDivider()
@@ -9969,8 +9909,6 @@ function FullCleanup()
 	end
 
 	conn2:Disconnect()
-	conn3:Disconnect()
-	conn4:Disconnect()
 	conn5:Disconnect()
 	conn6:Disconnect()
 	conn7:Disconnect()
