@@ -202,7 +202,7 @@ local Settings = {
 			BeastFillTransparancy = 0.5,
 			TracerSettings = {
 				Enabled = false,
-				Thickness = 2,
+				Thickness = 1.1,
 				Color = Color3.new(0, 1, 0),
 				FromBottom = true,
 				Transparancy = 0,
@@ -294,7 +294,7 @@ local Settings = {
 				HitColor = Color3.fromRGB(34, 255, 0),
 				WhenToHit = 0.3,
 				SmoothMode = true,
-				UpdateRate = 0.013,
+				UpdateRate = 0.014,
 				SoundEnabled = false,
 				SoundSecondsLeft = 6,
 			},
@@ -549,7 +549,7 @@ ThreeDESPObjects = {}
 RainbowEspState = {
 	Enabled = false,
 	Hue = 0,
-	Speed = 0.5,
+	Speed = 0.3,
 	Connection = nil,
 }
 
@@ -603,11 +603,26 @@ ShaderSettings = {
 	Technology = "ShadowMap",
 }
 
-NeverFailConnection = RunService.Heartbeat:Connect(function(a0)
-	if Settings.GadgetSettings.OtherGadgets.NeverFail then
-		ReplicatedStorage:WaitForChild("RemoteEvent"):FireServer("SetPlayerMinigameResult", true)
-	end
-end)
+do
+	local nfRemote, nfAcc = nil, 0
+	NeverFailConnection = RunService.Heartbeat:Connect(function(dt)
+		if not Settings.GadgetSettings.OtherGadgets.NeverFail then
+			return
+		end
+		nfAcc = nfAcc + dt
+		if nfAcc < 0.05 then
+			return
+		end
+		nfAcc = 0
+		if not nfRemote or not nfRemote.Parent then
+			nfRemote = ReplicatedStorage:FindFirstChild("RemoteEvent")
+			if not nfRemote then
+				return
+			end
+		end
+		nfRemote:FireServer("SetPlayerMinigameResult", true)
+	end)
+end
 
 local shaderlight = {
 	["yfbghj"] = Lighting.Ambient,
@@ -1509,10 +1524,16 @@ function ApplyShaderLighting()
 	end
 
 	if not shaderConnection then
-		shaderConnection = RunService.Heartbeat:Connect(function()
+		local shAcc = 0
+		shaderConnection = RunService.Heartbeat:Connect(function(dt)
 			if not ShaderSettings.Enabled then
 				return
 			end
+			shAcc = shAcc + dt
+			if shAcc < 0.1 then
+				return
+			end
+			shAcc = 0
 
 			Lighting.Ambient = shaderlight["yfbghj"]
 			Lighting.ClockTime = shaderlight["tgvbyd"]
@@ -1626,6 +1647,8 @@ end
 
 NameHiderSettings = {
 	Enabled = false,
+	MyEnabled = false,
+	OthersEnabled = false,
 	MyName = player.Name,
 	MyLevel = nil,
 	MyIcon = nil,
@@ -1636,17 +1659,23 @@ NameHiderSettings = {
 	DirtyObjects = {},
 	Connections = {},
 	LastFrameUpdate = 0,
-	UpdateInterval = 0.016,
+	UpdateInterval = 0.033,
 	PlayerFrameCache = {},
 }
 
 function getPlayerData(plrName)
-	if plrName == player.Name and NameHiderSettings.MyName then
-		return NameHiderSettings.MyName,
-			NameHiderSettings.MyLevel,
-			NameHiderSettings.MyIcon,
-			NameHiderSettings.MyTag,
-			NameHiderSettings.MyTagColor
+	if plrName == player.Name then
+		if NameHiderSettings.MyEnabled and NameHiderSettings.MyName then
+			return NameHiderSettings.MyName,
+				NameHiderSettings.MyLevel,
+				NameHiderSettings.MyIcon,
+				NameHiderSettings.MyTag,
+				NameHiderSettings.MyTagColor
+		end
+		return
+	end
+	if not NameHiderSettings.OthersEnabled then
+		return
 	end
 	local d = NameHiderSettings.CustomPlayers[plrName]
 	if d then
@@ -2224,10 +2253,16 @@ function StartKillAura()
 		KillAuraSettings.Connection:Disconnect()
 	end
 
-	KillAuraSettings.Connection = RunService.Heartbeat:Connect(function()
+	local kaAcc = 0
+	KillAuraSettings.Connection = RunService.Heartbeat:Connect(function(dt)
 		if not KillAuraSettings.Enabled then
 			return
 		end
+		kaAcc = kaAcc + dt
+		if kaAcc < 0.05 then
+			return
+		end
+		kaAcc = 0
 
 		local myChar = player.Character
 		if not myChar or not myChar:FindFirstChild("HumanoidRootPart") or not myChar:FindFirstChild("BeastPowers") then
@@ -2564,12 +2599,13 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
-function UpdateRainbowEsp()
+function UpdateRainbowEsp(dt)
 	if not RainbowEspState.Enabled or not Settings.EspSettings.PlayerEsp.Enabled then
 		return
 	end
 
-	RainbowEspState.Hue = (RainbowEspState.Hue + RainbowEspState.Speed) % 360
+	-- Speed se expresa en grados por frame a 60 FPS; se escala con el tiempo real
+	RainbowEspState.Hue = (RainbowEspState.Hue + RainbowEspState.Speed * 60 * (dt or (1 / 60))) % 360
 	local rainbowColor = Color3.fromHSV(RainbowEspState.Hue / 360, 1, 1)
 
 	Settings.EspSettings.PlayerEsp.SurvivorFillColor = rainbowColor
@@ -2585,8 +2621,15 @@ function StartRainbowEsp()
 		RainbowEspState.Connection:Disconnect()
 	end
 
-	RainbowEspState.Connection = RunService.Heartbeat:Connect(function()
-		UpdateRainbowEsp()
+	local reAcc = 0
+	RainbowEspState.Connection = RunService.Heartbeat:Connect(function(dt)
+		reAcc = reAcc + dt
+		if reAcc < 0.033 then
+			return
+		end
+		local step = reAcc
+		reAcc = 0
+		UpdateRainbowEsp(step)
 	end)
 end
 
@@ -2900,13 +2943,20 @@ function createSkeletonUI(character)
 
 	SkeletonUIs[character] = lines
 
+	local skParts, skLastScan = nil, 0
+
 	SkeletonConnections[character] = RunService.RenderStepped:Connect(function()
 		if not character or not character.Parent or not character:FindFirstChild("HumanoidRootPart") then
 			return
 		end
 
 		local cam = workspace.CurrentCamera
-		local parts = getCharacterParts(character)
+		local skNow = os.clock()
+		if not skParts or skNow - skLastScan > 0.5 then
+			skLastScan = skNow
+			skParts = getCharacterParts(character)
+		end
+		local parts = skParts
 
 		for _, joint in pairs(joints) do
 			local p1 = parts[joint[1]]
@@ -2972,6 +3022,8 @@ function createBoxUI(character)
 
 	BoxUIs[character] = boxLines
 
+	local cachedParts, lastScan = nil, 0
+
 	BoxConnections[character] = RunService.RenderStepped:Connect(function()
 		if not character or not character.Parent or not character:FindFirstChild("HumanoidRootPart") then
 			return
@@ -2987,12 +3039,17 @@ function createBoxUI(character)
 			return
 		end
 
-		local parts = {}
-		for _, part in pairs(character:GetDescendants()) do
-			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-				table.insert(parts, part)
+		local nowT = os.clock()
+		if not cachedParts or nowT - lastScan > 0.5 then
+			lastScan = nowT
+			cachedParts = {}
+			for _, part in pairs(character:GetDescendants()) do
+				if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+					table.insert(cachedParts, part)
+				end
 			end
 		end
+		local parts = cachedParts
 
 		if #parts == 0 then
 			for _, line in pairs(boxLines) do
@@ -5111,6 +5168,8 @@ function StartHeadstartTracking()
 	stroke.Transparency = sets.StrokeTransparancy
 
 	local mytime = 15.5
+	local textAcc = 0
+	local lastShown = ""
 	local myconnection
 	myconnection = RunService.Heartbeat:Connect(function(deltaTime)
 		if not sets.Enabled then
@@ -5122,7 +5181,17 @@ function StartHeadstartTracking()
 			StopHeadstartTracking()
 			return
 		end
-		text.Text = string.format("%.3f", mytime)
+		-- TextScaled recalcula el texto en cada cambio: se actualiza ~30 veces por segundo
+		textAcc = textAcc + deltaTime
+		if textAcc < 0.033 then
+			return
+		end
+		textAcc = 0
+		local str = string.format("%.3f", mytime)
+		if str ~= lastShown then
+			lastShown = str
+			text.Text = str
+		end
 	end)
 	sets.TrackerConnection = myconnection
 end
@@ -6501,19 +6570,26 @@ PlayerConnections.GameStartingConnection = game:GetService("ReplicatedStorage").
 
 		if game:GetService("ReplicatedStorage").GameStatus.Value == "15 SEC HEAD START" then
 			task.wait(0.5)
+			-- El contador sale primero y el resto se reparte en varios frames
+			-- para que no haya un pico de lag justo cuando empieza el headstart.
+			StartHeadstartTracking()
+			task.wait()
 			if Settings.EspSettings.PcEsp.Enabled then
 				StartPcEsp()
+				task.wait()
 			end
 			if Settings.EspSettings.TubeEsp.Enabled then
 				StartTubeEsp()
+				task.wait()
 			end
 			if Settings.EspSettings.ExitEsp.Enabled then
 				StartExitEsp()
+				task.wait()
 			end
 			if Settings.EspSettings.DoorEsp.Enabled then
 				DoorEsp()
+				task.wait()
 			end
-			StartHeadstartTracking()
 			UpdateAllCameras()
 		end
 	end)
@@ -6562,15 +6638,23 @@ MyNameTab = NameHiderTab:AddTab("My Settings")
 MyNameTab:AddDivider()
 OthersTab = NameHiderTab:AddTab("Other Players")
 
+-- El motor del Name Hider corre si "My Settings" u "Other Players" estan activados.
+-- Cada pestana tiene su propio boton de activar/desactivar.
+local function RefreshNameHider()
+	if NameHiderSettings.Enabled then
+		StopNameHider()
+	end
+	if NameHiderSettings.MyEnabled or NameHiderSettings.OthersEnabled then
+		StartNameHider()
+	end
+end
+
 MyNameTab:AddToggle("EnableNameHider", {
 	Text = "Enable Name Hider",
 	Default = false,
 	Callback = function(Value)
-		if Value then
-			StartNameHider()
-		else
-			StopNameHider()
-		end
+		NameHiderSettings.MyEnabled = Value
+		RefreshNameHider()
 	end,
 })
 
@@ -6640,6 +6724,15 @@ MyNameTab:AddButton("Reset My Avatar", function()
 end)
 
 selectedPlayer = nil
+
+OthersTab:AddToggle("EnableOthersNameHider", {
+	Text = "Enable Other Players",
+	Default = false,
+	Callback = function(Value)
+		NameHiderSettings.OthersEnabled = Value
+		RefreshNameHider()
+	end,
+})
 
 OthersTab:AddDropdown("SelectPlayer", {
 	Values = (function()
@@ -7426,7 +7519,7 @@ Groupboxes.GadgetCustomization.GetupTimer:AddToggle("SmoothGetupTimer", {
 })
 
 Groupboxes.GadgetCustomization.GetupTimer:AddSlider("GetupUpdateRate", {
-	Default = 13,
+	Default = 14,
 	Min = 1,
 	Max = 100,
 	Rounding = 0,
@@ -8418,7 +8511,7 @@ do -- plusaccess removido: siempre activo
 	})
 end
 
-local CrosshairTab = Tabs.Crosshair:AddLeftGroupbox("Crosshair Settings")
+local CrosshairTab = Tabs.Crosshair:AddLeftTabbox("Crosshair Settings"):AddTab("Crosshair Settings")
 
 CrosshairTab:AddToggle("CrosshairEnabled", {
 	Text = "Enable Crosshair",
@@ -8686,7 +8779,7 @@ KATab:AddSlider("KillAuraDistance", {
 -- ════════════════════════════════════════════════════
 -- FAMILY HACKS
 -- ════════════════════════════════════════════════════
-local FamilyHacksGroup = Tabs["Danger Settings"]:AddLeftGroupbox("Family Hacks")
+local FamilyHacksGroup = Tabs["Danger Settings"]:AddLeftTabbox("Family Hacks"):AddTab("Family Hacks")
 -- Surv Boost (independiente del Speed Settings)
 SurvBoostSettings = { Enabled = false, Value = 1, Conn = nil }
 
@@ -9038,26 +9131,91 @@ do
 end
 
 -- HITBOX en Family Hacks
+do
 local _hitboxEnabled = false
-local _hitboxSize = 6.5
+local _hitboxSides = 6.5   -- lados (ancho, eje X)
+local _hitboxFront = 6.5   -- frente / atras (profundidad, eje Z)
+local _hitboxUpDown = 6.5  -- abajo / arriba (alto, eje Y)
 local _hitboxTransparency = 0.5
+local _hitboxConn = nil
+local _hitboxAcc = 0
+
+local function GetHitboxVector()
+	return Vector3.new(_hitboxSides, _hitboxUpDown, _hitboxFront)
+end
+
+local function ApplyHitboxTo(plr)
+	if plr == player then return end
+	local char = plr.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	pcall(function()
+		hrp.Size = GetHitboxVector()
+		hrp.Transparency = _hitboxTransparency
+	end)
+end
+
+local function ResetHitboxOf(plr)
+	if plr == player then return end
+	local char = plr.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	pcall(function()
+		hrp.Size = Vector3.new(2, 2, 1)
+		hrp.Transparency = 1
+	end)
+end
+
+local function ApplyHitboxAll()
+	for _, v in pairs(Players:GetPlayers()) do
+		ApplyHitboxTo(v)
+	end
+end
+
+-- Mantiene el hitbox aplicado mientras esta activado (al correr, al reaparecer
+-- o cuando entra un jugador nuevo el juego puede resetear el tamano).
+local function StartHitboxLoop()
+	if _hitboxConn then return end
+	_hitboxAcc = 0
+	_hitboxConn = RunService.Heartbeat:Connect(function(dt)
+		_hitboxAcc = _hitboxAcc + dt
+		if _hitboxAcc < 0.1 then return end
+		_hitboxAcc = 0
+		local size = GetHitboxVector()
+		for _, v in pairs(Players:GetPlayers()) do
+			if v ~= player then
+				local char = v.Character
+				local hrp = char and char:FindFirstChild("HumanoidRootPart")
+				if hrp and (hrp.Size ~= size or hrp.Transparency ~= _hitboxTransparency) then
+					pcall(function()
+						hrp.Size = size
+						hrp.Transparency = _hitboxTransparency
+					end)
+				end
+			end
+		end
+	end)
+end
+
+local function StopHitboxLoop()
+	if _hitboxConn then
+		_hitboxConn:Disconnect()
+		_hitboxConn = nil
+	end
+end
 
 FamilyHacksGroup:AddToggle("HitBox", {
 	Text = "Enable Hitbox",
 	Default = false,
 	Callback = function(state)
 		_hitboxEnabled = state
-		for _, v in pairs(Players:GetPlayers()) do
-			if v ~= player and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
-				pcall(function()
-					if state then
-						v.Character.HumanoidRootPart.Size = Vector3.new(_hitboxSize, _hitboxSize, _hitboxSize)
-						v.Character.HumanoidRootPart.Transparency = _hitboxTransparency
-					else
-						v.Character.HumanoidRootPart.Size = Vector3.new(2, 2, 1)
-						v.Character.HumanoidRootPart.Transparency = 1
-					end
-				end)
+		if state then
+			ApplyHitboxAll()
+			StartHitboxLoop()
+		else
+			StopHitboxLoop()
+			for _, v in pairs(Players:GetPlayers()) do
+				ResetHitboxOf(v)
 			end
 		end
 	end,
@@ -9150,20 +9308,44 @@ do
 	})
 end
 
-FamilyHacksGroup:AddSlider("HitBoxSize", {
-	Text = "Hitbox Size",
+FamilyHacksGroup:AddSlider("HitBoxSides", {
+	Text = "Hitbox Lados (X)",
 	Default = 6.5,
 	Min = 1,
-	Max = 20,
+	Max = 30,
 	Rounding = 1,
 	Callback = function(value)
-		_hitboxSize = value
+		_hitboxSides = value
 		if _hitboxEnabled then
-			for _, v in pairs(Players:GetPlayers()) do
-				if v ~= player and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
-					pcall(function() v.Character.HumanoidRootPart.Size = Vector3.new(value, value, value) end)
-				end
-			end
+			ApplyHitboxAll()
+		end
+	end,
+})
+
+FamilyHacksGroup:AddSlider("HitBoxFront", {
+	Text = "Hitbox Frente (Z)",
+	Default = 6.5,
+	Min = 1,
+	Max = 30,
+	Rounding = 1,
+	Callback = function(value)
+		_hitboxFront = value
+		if _hitboxEnabled then
+			ApplyHitboxAll()
+		end
+	end,
+})
+
+FamilyHacksGroup:AddSlider("HitBoxUpDown", {
+	Text = "Hitbox Abajo/Arriba (Y)",
+	Default = 6.5,
+	Min = 1,
+	Max = 30,
+	Rounding = 1,
+	Callback = function(value)
+		_hitboxUpDown = value
+		if _hitboxEnabled then
+			ApplyHitboxAll()
 		end
 	end,
 })
@@ -9177,14 +9359,11 @@ FamilyHacksGroup:AddSlider("HitBoxTransparency", {
 	Callback = function(value)
 		_hitboxTransparency = value / 100
 		if _hitboxEnabled then
-			for _, v in pairs(Players:GetPlayers()) do
-				if v ~= player and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
-					pcall(function() v.Character.HumanoidRootPart.Transparency = value / 100 end)
-				end
-			end
+			ApplyHitboxAll()
 		end
 	end,
 })
+end
 
 RainbowEspToggle = Groupboxes.Visual.RightGroupBox:AddToggle("RainbowEsp", {
 	Text = "Rainbow ESP",
@@ -9200,7 +9379,7 @@ RainbowEspToggle = Groupboxes.Visual.RightGroupBox:AddToggle("RainbowEsp", {
 })
 
 RainbowSpeedSlider = Groupboxes.EspCustomization.PlayerEsp:AddSlider("RainbowSpeed", {
-	Default = 0.5,
+	Default = 0.3,
 	Min = 0.1,
 	Max = 5,
 	Rounding = 1,
@@ -9297,7 +9476,7 @@ function StopTextureChanger()
 	TextureSettings.PerPartColors = {}
 end
 
-GeneralCustomizationLeft = Tabs["General Customization"]:AddLeftGroupbox("Fonts")
+GeneralCustomizationLeft = Tabs["General Customization"]:AddLeftTabbox("Fonts"):AddTab("Fonts")
 
 GeneralCustomizationLeft:AddToggle("EnableFontChanger", {
 	Text = "Enable Font Changer",
@@ -9316,7 +9495,6 @@ GeneralCustomizationLeft:AddDropdown("FontSelection", {
 	Values = {
 		"SourceSans",
 		"SourceSansBold",
-		"SourceSansLight",
 		"SourceSansItalic",
 		"SourceSansSemibold",
 		"Gotham",
@@ -9325,16 +9503,13 @@ GeneralCustomizationLeft:AddDropdown("FontSelection", {
 		"GothamMedium",
 		"Arial",
 		"ArialBold",
-		"Arcade",
 		"AmaticSC",
 		"Bangers",
 		"Creepster",
 		"DenkOne",
 		"Fondamento",
 		"FredokaOne",
-		"GrenzeGotisch",
 		"Highway",
-		"IndieFlower",
 		"JosefinSans",
 		"Jura",
 		"Kalam",
@@ -9345,7 +9520,6 @@ GeneralCustomizationLeft:AddDropdown("FontSelection", {
 		"RobotoCondensed",
 		"RobotoMono",
 		"SpecialElite",
-		"TitilliumWeb",
 		"Ubuntu",
 	},
 	Default = "SourceSans",
@@ -9358,7 +9532,7 @@ GeneralCustomizationLeft:AddDropdown("FontSelection", {
 	end,
 })
 
-GeneralCustomizationRight = Tabs["General Customization"]:AddRightGroupbox("Gamma")
+GeneralCustomizationRight = Tabs["General Customization"]:AddRightTabbox("Gamma"):AddTab("Gamma")
 
 GeneralCustomizationLeft:AddDivider()
 GeneralCustomizationLeft:AddLabel("Hide Chat")
