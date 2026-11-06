@@ -9144,14 +9144,27 @@ local function GetHitboxVector()
 	return Vector3.new(_hitboxSides, _hitboxUpDown, _hitboxFront)
 end
 
+local _hitboxOrigCollide = setmetatable({}, { __mode = "k" })
+
+local function HitboxNeedsUpdate(hrp, size)
+	-- Comparacion con tolerancia: Transparency/Size se guardan como float32,
+	-- asi que comparar con "~=" daba siempre "distinto" y se reescribia sin parar.
+	return (hrp.Size - size).Magnitude > 0.01 or math.abs(hrp.Transparency - _hitboxTransparency) > 0.005
+end
+
 local function ApplyHitboxTo(plr)
 	if plr == player then return end
 	local char = plr.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
 	pcall(function()
+		if _hitboxOrigCollide[hrp] == nil then
+			_hitboxOrigCollide[hrp] = hrp.CanCollide
+		end
 		hrp.Size = GetHitboxVector()
 		hrp.Transparency = _hitboxTransparency
+		-- Un cubo gigante con colision es lo que mas pesa en la fisica del cliente
+		hrp.CanCollide = false
 	end)
 end
 
@@ -9163,6 +9176,11 @@ local function ResetHitboxOf(plr)
 	pcall(function()
 		hrp.Size = Vector3.new(2, 2, 1)
 		hrp.Transparency = 1
+		local orig = _hitboxOrigCollide[hrp]
+		if orig ~= nil then
+			hrp.CanCollide = orig
+			_hitboxOrigCollide[hrp] = nil
+		end
 	end)
 end
 
@@ -9174,23 +9192,21 @@ end
 
 -- Mantiene el hitbox aplicado mientras esta activado (al correr, al reaparecer
 -- o cuando entra un jugador nuevo el juego puede resetear el tamano).
+-- Corre 4 veces por segundo y solo toca a quien realmente cambio.
 local function StartHitboxLoop()
 	if _hitboxConn then return end
 	_hitboxAcc = 0
 	_hitboxConn = RunService.Heartbeat:Connect(function(dt)
 		_hitboxAcc = _hitboxAcc + dt
-		if _hitboxAcc < 0.1 then return end
+		if _hitboxAcc < 0.25 then return end
 		_hitboxAcc = 0
 		local size = GetHitboxVector()
 		for _, v in pairs(Players:GetPlayers()) do
 			if v ~= player then
 				local char = v.Character
 				local hrp = char and char:FindFirstChild("HumanoidRootPart")
-				if hrp and (hrp.Size ~= size or hrp.Transparency ~= _hitboxTransparency) then
-					pcall(function()
-						hrp.Size = size
-						hrp.Transparency = _hitboxTransparency
-					end)
+				if hrp and (HitboxNeedsUpdate(hrp, size) or hrp.CanCollide) then
+					ApplyHitboxTo(v)
 				end
 			end
 		end
